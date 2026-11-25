@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>تسجيل الحضور — دراسة القائد الخادم</title>
+<script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+<style>
+  :root { --green:#1a7f37; --red:#cf222e; --blue:#0969da; --bg:#f6f8fa; --card:#ffffff; --ink:#1f2328; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,'Segoe UI',Tahoma,Arial,sans-serif; background:var(--bg); color:var(--ink); }
+  .wrap { max-width:520px; margin:0 auto; padding:14px; }
+  h1 { font-size:20px; margin:6px 0 14px; text-align:center; }
+  .card { background:var(--card); border:1px solid #d0d7de; border-radius:12px; padding:14px; margin-bottom:14px; }
+  label { display:block; font-size:14px; margin-bottom:6px; font-weight:600; }
+  input[type=text], input[type=password], input[type=tel] {
+    width:100%; padding:12px; font-size:17px; border:1px solid #d0d7de; border-radius:8px; margin-bottom:10px;
+  }
+  button {
+    width:100%; padding:14px; font-size:17px; font-weight:700; border:0; border-radius:8px;
+    background:var(--blue); color:#fff; cursor:pointer; margin-bottom:8px;
+  }
+  button.secondary { background:#6e7781; }
+  button.green { background:var(--green); }
+  #reader { width:100%; border-radius:10px; overflow:hidden; background:#000; min-height:0; }
+  #reader video { width:100% !important; }
+  #result { display:none; text-align:center; padding:18px 12px; border-radius:12px; color:#fff; margin-bottom:14px; }
+  #result.ok-in { background:var(--green); }
+  #result.ok-out { background:var(--blue); }
+  #result.err { background:var(--red); }
+  #result .name { font-size:22px; font-weight:800; margin-bottom:6px; }
+  #result .msg { font-size:17px; }
+  #result .time { font-size:14px; margin-top:6px; opacity:.9; direction:ltr; }
+  #dash { display:none; }
+  #dash table { width:100%; border-collapse:collapse; font-size:13px; }
+  #dash th, #dash td { border-bottom:1px solid #eaeef2; padding:6px 4px; text-align:right; }
+  #dashCounts { display:flex; gap:8px; margin-bottom:10px; }
+  #dashCounts div { flex:1; text-align:center; background:#eef2f6; border-radius:8px; padding:8px 4px; font-size:13px; }
+  #dashCounts b { display:block; font-size:20px; }
+  .hint { font-size:13px; color:#57606a; margin-top:4px; }
+  .ltr { direction:ltr; text-align:left; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>تسجيل الحضور والانصراف<br>دراسة القائد الخادم</h1>
+
+  <div class="card" id="pinCard">
+    <label for="pin">الرقم السري (PIN)</label>
+    <input type="tel" id="pin" inputmode="numeric" maxlength="6" placeholder="******">
+    <button class="secondary" id="savePin" type="button">حفظ الرقم السري</button>
+    <div class="hint">يُحفظ على هذا الجهاز فقط.</div>
+  </div>
+
+  <div id="result"><div class="name"></div><div class="msg"></div><div class="time"></div></div>
+
+  <div class="card">
+    <div id="reader"></div>
+    <button class="green" id="startBtn" type="button">تشغيل الكاميرا</button>
+    <button class="secondary" id="stopBtn" type="button" style="display:none">إيقاف الكاميرا</button>
+    <div class="hint" id="camHint">وجّه الكاميرا نحو كود QR الخاص بالمتدرب.</div>
+  </div>
+
+  <div class="card">
+    <label for="manual">إدخال الكود يدويًا (للتجربة أو عند تعذر الكاميرا)</label>
+    <input type="text" id="manual" class="ltr" placeholder="QR token" autocomplete="off">
+    <button class="secondary" id="manualBtn" type="button">تسجيل</button>
+  </div>
+
+  <div class="card">
+    <button id="dashBtn" type="button">ملخص اليوم</button>
+    <div id="dash">
+      <div id="dashCounts">
+        <div><b id="cIn">0</b>حضور</div>
+        <div><b id="cOut">0</b>انصراف</div>
+      </div>
+      <table><thead><tr><th>الاسم</th><th>حضور</th><th>انصراف</th><th>الحالة</th></tr></thead><tbody id="dashRows"></tbody></table>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  var EXEC = 'https://script.google.com/macros/s/AKfycbzysv19MnFFOEkm8AxgQVTwWc7wUL18uqfK1KMRgOODc56owLxCUDfmCsBOEdFNzZu8/exec';
+  var pinInput = document.getElementById('pin');
+  pinInput.value = localStorage.getItem('att_pin') || '';
+  document.getElementById('savePin').onclick = function () {
+    localStorage.setItem('att_pin', pinInput.value.trim());
+    toast('تم حفظ الرقم السري', 'ok-in');
+  };
+
+  var last = {}; // token -> timestamp debounce
+  function tokenFrom(text) {
+    var m = String(text || '').match(/[0-9a-f]{40}/i);
+    return m ? m[0].toLowerCase() : null;
+  }
+  function toast(msg, cls, name, time) {
+    var r = document.getElementById('result');
+    r.style.display = 'block';
+    r.className = cls || 'err';
+    r.querySelector('.name').textContent = name || '';
+    r.querySelector('.msg').textContent = msg;
+    r.querySelector('.time').textContent = time || '';
+  }
+  function beep(good) {
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var o = ctx.createOscillator(), g = ctx.createGain();
+      o.connect(g); g.connect(ctx.destination);
+      o.frequency.value = good ? 880 : 220;
+      g.gain.setValueAtTime(0.25, ctx.currentTime);
+      o.start(); o.stop(ctx.currentTime + (good ? 0.15 : 0.4));
+    } catch (e) {}
+    if (navigator.vibrate) { try { navigator.vibrate(good ? 80 : [80, 60, 80]); } catch (e) {} }
+  }
+  function api(params, cb) {
+    var url = EXEC + '?' + Object.keys(params).map(function (k) { return k + '=' + encodeURIComponent(params[k]); }).join('&');
+    fetch(url, { cache: 'no-store', credentials: 'omit' })
+      .then(function (r) { return r.json(); })
+      .then(function (j) { cb(null, j); })
+      .catch(function (e) { cb(e); });
+  }
+  function scan(token) {
+    var pin = pinInput.value.trim();
+    if (!pin) { toast('اكتب الرقم السري أولًا', 'err'); beep(false); return; }
+    var now = Date.now();
+    if (last[token] && now - last[token] < 5000) return;
+    last[token] = now;
+    toast('...جاري التسجيل', 'ok-out');
+    api({ action: 'scan', token: token, pin: pin }, function (err, j) {
+      if (err) { toast('مشكلة في الاتصال — حاول مرة أخرى', 'err'); beep(false); return; }
+      if (j && j.ok) {
+        var isOut = /الانصراف/.test(j.message || '');
+        toast(j.message || 'تم', isOut ? 'ok-out' : 'ok-in', j.name || '', j.time || '');
+        beep(true);
+      } else {
+        toast((j && j.message) || 'كود غير معروف', 'err', (j && j.name) || '');
+        beep(false);
+      }
+    });
+  }
+
+  // Camera
+  var qr = null, running = false;
+  var startBtn = document.getElementById('startBtn'), stopBtn = document.getElementById('stopBtn');
+  startBtn.onclick = function () {
+    if (running) return;
+    qr = qr || new Html5Qrcode('reader');
+    Html5Qrcode.getCameras().then(function () {
+      return qr.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: function (w, h) { var s = Math.floor(Math.min(w, h) * 0.7); return { width: s, height: s }; } },
+        function (text) { var t = tokenFrom(text); if (t) scan(t); },
+        function () {}
+      );
+    }).then(function () {
+      running = true; startBtn.style.display = 'none'; stopBtn.style.display = 'block';
+    }).catch(function (e) {
+      var msg = 'تعذر فتح الكاميرا. اسمح للموقع باستخدام الكاميرا ثم أعد المحاولة.';
+      if (location.protocol !== 'https:') msg = 'الكاميرا تحتاج رابط https.';
+      toast(msg, 'err');
+    });
+  };
+  stopBtn.onclick = function () {
+    if (!qr || !running) return;
+    qr.stop().then(function () { running = false; startBtn.style.display = 'block'; stopBtn.style.display = 'none'; }).catch(function () {});
+  };
+
+  // Manual
+  document.getElementById('manualBtn').onclick = function () {
+    var t = tokenFrom(document.getElementById('manual').value);
+    if (!t) { toast('الكود غير صحيح', 'err'); beep(false); return; }
+    scan(t);
+  };
+
+  // Dashboard
+  document.getElementById('dashBtn').onclick = function () {
+    var pin = pinInput.value.trim();
+    if (!pin) { toast('اكتب الرقم السري أولًا', 'err'); return; }
+    api({ action: 'dash', pin: pin }, function (err, j) {
+      if (err || !j || j.ok === false) { toast((j && j.message) || 'تعذر تحميل الملخص', 'err'); return; }
+      document.getElementById('dash').style.display = 'block';
+      document.getElementById('cIn').textContent = j.checkins;
+      document.getElementById('cOut').textContent = j.checkouts;
+      var tb = document.getElementById('dashRows'); tb.innerHTML = '';
+      (j.rows || []).forEach(function (r) {
+        var tr = document.createElement('tr');
+        [r.name, (r.checkin || '').slice(11, 16), (r.checkout || '').slice(11, 16), r.status].forEach(function (v) {
+          var td = document.createElement('td'); td.textContent = v || '—'; tr.appendChild(td);
+        });
+        tb.appendChild(tr);
+      });
+    });
+  };
+})();
+</script>
+</body>
+</html>
