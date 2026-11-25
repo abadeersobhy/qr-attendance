@@ -28,6 +28,7 @@
   #result.ok-in { background:var(--green); }
   #result.ok-out { background:var(--blue); }
   #result.err { background:var(--red); }
+  #result.warn { background:#b35900; }
   #result .name { font-size:22px; font-weight:800; margin-bottom:6px; }
   #result .msg { font-size:17px; }
   #result .time { font-size:14px; margin-top:6px; opacity:.9; direction:ltr; }
@@ -91,6 +92,7 @@
   };
 
   var last = {}; // token -> timestamp debounce
+  var scanBusy = false; // global lock: one scan at a time
   var refusedToken = null;
   function tokenFrom(text) {
     var m = String(text || '').match(/[0-9a-f]{40}/i);
@@ -127,15 +129,20 @@
     var pin = pinInput.value.trim();
     if (!pin) { toast('اكتب الرقم السري أولًا', 'err'); beep(false); return; }
     var now = Date.now();
+    if (scanBusy) return;
     if (last[token] && now - last[token] < 5000) return;
     last[token] = now;
-    toast('...جاري التسجيل', 'ok-out');
+    scanBusy = true;
+    toast('تم التقاط الكود — جاري التسجيل...', 'ok-out');
     api({ action: 'scan', token: token, pin: pin }, function (err, j) {
-      if (err) { toast('مشكلة في الاتصال — حاول مرة أخرى', 'err'); beep(false); return; }
+      if (err) { toast('مشكلة في الاتصال — حاول مرة أخرى', 'err'); beep(false); setTimeout(function () { scanBusy = false; }, 3000); return; }
       if (j && j.ok) {
         var isOut = /الانصراف/.test(j.message || '');
         toast(j.message || 'تم', isOut ? 'ok-out' : 'ok-in', j.name || '', j.time || '');
         beep(true);
+      } else if (j && j.duplicate) {
+        toast(j.message || 'مسحة مكررة', 'warn', j.name || '');
+        beep(false);
       } else {
         toast((j && j.message) || 'كود غير معروف', 'err', (j && j.name) || '');
         beep(false);
@@ -144,6 +151,7 @@
           document.getElementById('resetOne').style.display = 'block';
         }
       }
+      setTimeout(function () { scanBusy = false; }, 3000);
     });
   }
 
