@@ -52,7 +52,7 @@
     <div class="hint">يُحفظ على هذا الجهاز فقط.</div>
   </div>
 
-  <div id="result"><div class="name"></div><div class="msg"></div><div class="time"></div></div>
+  <div id="result"><div class="name"></div><div class="msg"></div><div class="time"></div><button id="resetOne" type="button" style="display:none;background:#b35900;margin-top:10px">تصفير هذا المتدرب — السماح بالتسجيل من جديد</button></div>
 
   <div class="card">
     <div id="reader"></div>
@@ -69,6 +69,7 @@
 
   <div class="card">
     <button id="dashBtn" type="button">ملخص اليوم</button>
+    <button id="resetDay" type="button" style="background:#b35900">تصفير اليوم بالكامل</button>
     <div id="dash">
       <div id="dashCounts">
         <div><b id="cIn">0</b>حضور</div>
@@ -90,6 +91,7 @@
   };
 
   var last = {}; // token -> timestamp debounce
+  var refusedToken = null;
   function tokenFrom(text) {
     var m = String(text || '').match(/[0-9a-f]{40}/i);
     return m ? m[0].toLowerCase() : null;
@@ -101,6 +103,7 @@
     r.querySelector('.name').textContent = name || '';
     r.querySelector('.msg').textContent = msg;
     r.querySelector('.time').textContent = time || '';
+    document.getElementById('resetOne').style.display = 'none';
   }
   function beep(good) {
     try {
@@ -136,6 +139,10 @@
       } else {
         toast((j && j.message) || 'كود غير معروف', 'err', (j && j.name) || '');
         beep(false);
+        if (j && /بالفعل/.test(j.message || '')) {
+          refusedToken = token;
+          document.getElementById('resetOne').style.display = 'block';
+        }
       }
     });
   }
@@ -190,6 +197,33 @@
         });
         tb.appendChild(tr);
       });
+    });
+  };
+  // Reset one participant (after a refusal)
+  document.getElementById('resetOne').onclick = function () {
+    var pin = pinInput.value.trim();
+    if (!refusedToken) return;
+    if (!confirm('تصفير تسجيل هذا المتدرب لهذا اليوم؟ سيُحذف سجله ويمكن مسحه من جديد.')) return;
+    toast('...جاري التصفير', 'ok-out');
+    var t = refusedToken; refusedToken = null;
+    api({ action: 'reset', token: t, pin: pin }, function (err, j) {
+      if (err) { toast('مشكلة في الاتصال — حاول مرة أخرى', 'err'); beep(false); return; }
+      if (j && j.ok) { toast(j.message || 'تم التصفير', 'ok-in', j.name || ''); beep(true); }
+      else { toast((j && j.message) || 'تعذر التصفير', 'err'); beep(false); }
+    });
+  };
+
+  // Reset the whole day
+  document.getElementById('resetDay').onclick = function () {
+    var pin = pinInput.value.trim();
+    if (!pin) { toast('اكتب الرقم السري أولًا', 'err'); return; }
+    if (!confirm('سيتم حذف كل تسجيلات اليوم بالكامل. متابعة؟')) return;
+    if (!confirm('متأكد تمامًا؟ لا يمكن التراجع عن تصفير اليوم.')) return;
+    toast('...جاري تصفير اليوم', 'ok-out');
+    api({ action: 'resetday', pin: pin }, function (err, j) {
+      if (err) { toast('مشكلة في الاتصال — حاول مرة أخرى', 'err'); beep(false); return; }
+      if (j && j.ok) { toast(j.message || 'تم تصفير اليوم', 'ok-in'); beep(true); }
+      else { toast((j && j.message) || 'تعذر التصفير', 'err'); beep(false); }
     });
   };
 })();
